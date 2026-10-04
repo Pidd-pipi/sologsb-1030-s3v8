@@ -121,6 +121,30 @@ kbd { border: 1px solid var(--gray-a7); border-bottom-width: 2px; border-radius:
 .help-list div { display: grid; grid-template-columns: 150px 1fr; align-items: center; gap: 12px; font-size: 12px; }
 .help-list kbd { justify-self: start; }
 
+/* 批量换阶段 */
+.batch-bar { border-color: var(--accent-a7); background: var(--accent-a2); }
+.checklist-row.batch-selected { background: var(--accent-a3); }
+.checklist-row.conflict { background: color-mix(in srgb, var(--red-3) 45%, var(--color-panel)); box-shadow: inset 3px 0 0 var(--red-9); }
+.batch-check { display: grid; place-items: center; cursor: pointer; }
+.conflict-note { display: grid; gap: 3px; margin-top: 6px; padding: 6px 8px; border-left: 3px solid var(--red-9); border-radius: 6px; background: color-mix(in srgb, var(--red-3) 45%, transparent); }
+.conflict-note small { white-space: normal; overflow: visible; text-overflow: clip; color: var(--red-11); font-size: 10px; line-height: 1.45; }
+.batch-preview { margin-top: 12px; display: grid; }
+.batch-preview-list { display: grid; gap: 6px; max-height: 220px; overflow: auto; padding: 8px; border: 1px solid var(--gray-a5); border-radius: 10px; background: var(--gray-a2); }
+.batch-preview-row { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; }
+.batch-preview-row > div { display: grid; gap: 2px; }
+.batch-preview-row small { color: var(--gray-10); font-size: 10px; }
+.batch-preview-row.conflict-row { padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, var(--red-3) 40%, transparent); }
+
+/* 确认状态与待整理 */
+.confirmation-box { border-top: 1px solid var(--gray-a5); padding-top: 12px; display: grid; gap: 4px; }
+.pending-list { display: grid; gap: 8px; max-height: 260px; overflow: auto; }
+.pending-card { display: grid; gap: 4px; padding: 9px; border: 1px solid var(--amber-a7); border-left-width: 3px; border-radius: 10px; background: var(--amber-a2); }
+.pending-card p { margin: 0; }
+.stale-tag { color: var(--red-11); font-style: normal; font-size: 10px; font-weight: 700; }
+.confirmed-tag { color: var(--green-11); font-style: normal; font-size: 10px; }
+.print-sheet section.over-capacity { border-left: 4px solid var(--red-9); padding-left: 10px; }
+.print-sheet tr.stale-row { background: color-mix(in srgb, var(--red-3) 35%, transparent); }
+
 @media (max-width: 1320px) {
   .editor-grid { grid-template-columns: 210px minmax(570px, 1fr) 315px; }
   .workflow-step { min-width: 160px; }

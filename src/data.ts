@@ -18,7 +18,8 @@ const item = (
   response: string,
   critical = false,
   preconditionIds: string[] = [],
-  abnormalProcedure = ''
+  abnormalProcedure = '',
+  confirmedAt?: string
 ): ChecklistItem => ({
   id,
   stageId,
@@ -28,15 +29,16 @@ const item = (
   critical,
   preconditionIds,
   abnormalProcedure,
-  updatedAt: '2026-09-25T00:00:00.000Z'
+  updatedAt: '2026-09-25T00:00:00.000Z',
+  ...(confirmedAt ? { confirmedAt } : {})
 });
 
 const items: ChecklistItem[] = [
-  item('item-battery', 'stage-preflight', 0, '电瓶', 'ON', true, [], '若电瓶电压低于 24V，停止启动并联系机务。'),
-  item('item-fuel', 'stage-preflight', 1, '燃油量', 'CHECKED', true, [], '燃油不可用或存在水分时，停止任务。'),
+  item('item-battery', 'stage-preflight', 0, '电瓶', 'ON', true, [], '若电瓶电压低于 24V，停止启动并联系机务。', '2026-09-25T01:00:00.000Z'),
+  item('item-fuel', 'stage-preflight', 1, '燃油量', 'CHECKED', true, [], '燃油不可用或存在水分时，停止任务。', '2026-09-25T01:02:00.000Z'),
   item('item-altimeter', 'stage-preflight', 2, '高度表', 'SET', false, [], '核对场压并交叉检查左右高度表。'),
-  item('item-beacon', 'stage-start', 0, '防撞灯', 'ON', false, ['item-battery'], '灯不亮时关闭发动机并排故。'),
-  item('item-start-clear', 'stage-start', 1, '启动区域', 'CLEAR', true, ['item-beacon'], '发现人员或设备进入螺旋桨区域时立即中止启动。'),
+  item('item-beacon', 'stage-start', 0, '防撞灯', 'ON', false, ['item-battery'], '灯不亮时关闭发动机并排故。', '2026-09-25T01:10:00.000Z'),
+  item('item-start-clear', 'stage-start', 1, '启动区域', 'CLEAR', true, ['item-beacon'], '发现人员或设备进入螺旋桨区域时立即中止启动。', '2026-09-25T01:11:00.000Z'),
   item('item-taxi-clearance', 'stage-taxi', 0, '滑行许可', 'RECEIVED', true, [], '许可不清楚时停止滑行并要求重复。'),
   item('item-taxi-instruments', 'stage-taxi', 1, '飞行仪表', 'CHECKED', false, ['item-battery'], '姿态或航向指示异常时返回停机位。'),
   item('item-runway', 'stage-takeoff', 0, '跑道', 'CONFIRMED', true, ['item-taxi-clearance'], '跑道占用或标识不清时禁止起飞。'),
@@ -59,6 +61,7 @@ const project: ChecklistProject = {
   reviewNote: '',
   stages: structuredClone(stages),
   items: structuredClone(items),
+  pendingLinks: [],
   revisions: [
     {
       id: 'revision-2',
@@ -82,7 +85,7 @@ const project: ChecklistProject = {
 };
 
 export const createInitialState = (): WorkspaceState => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   selectedProjectId: project.id,
   projects: [project]
 });

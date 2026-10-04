@@ -1,3 +1,5 @@
+import { findCycleNodes } from './graph';
+import { STAGE_ITEM_CAPACITY } from './types';
 import type { ChecklistItem, ChecklistProject, ValidationIssue } from './types';
 
 const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en');
@@ -20,6 +22,9 @@ export function validateProject(project: ChecklistProject): ValidationIssue[] {
     if (!item.response.trim()) {
       add({ id: `${item.id}-missing-response`, type: 'missing-response', level: 'error', stageId: item.stageId, itemId: item.id, title: '缺少预期回应', detail: `${item.challenge || '未命名检查项'} 没有填写机组应确认的回应。` });
     }
+    if (item.invalidationReason) {
+      add({ id: `${item.id}-stale-confirmation`, type: 'stale-confirmation', level: 'error', stageId: item.stageId, itemId: item.id, title: '已有确认已失效', detail: item.invalidationReason });
+    }
     item.preconditionIds.forEach((preconditionId) => {
       if (preconditionId === item.id) {
         add({ id: `${item.id}-self-precondition`, type: 'unreachable-precondition', level: 'error', stageId: item.stageId, itemId: item.id, title: '前置条件形成自引用', detail: '检查项不能依赖自身。' });
@@ -41,6 +46,34 @@ export function validateProject(project: ChecklistProject): ValidationIssue[] {
     });
   });
 
+  // 前置条件依赖环（环上每个节点都标出，先解开环才能调整/冻结）。
+  findCycleNodes(project.items).forEach((itemId) => {
+    const item = itemById.get(itemId);
+    if (!item) return;
+    add({ id: `${itemId}-cycle`, type: 'precondition-cycle', level: 'error', stageId: item.stageId, itemId: item.id, title: '前置条件形成依赖环', detail: `「${item.challenge || '未命名检查项'}」与其他检查项互相依赖，没有任何一项可以先满足，请先解开依赖环。` });
+  });
+
+  // 打印页容量：单阶段超过 24 项会撑破打印页。
+  project.stages.forEach((stage) => {
+    const count = project.items.filter((item) => item.stageId === stage.id).length;
+    if (count > STAGE_ITEM_CAPACITY) {
+      add({ id: `${stage.id}-capacity`, type: 'stage-capacity', level: 'error', stageId: stage.id, title: '阶段超过打印页容量', detail: `「${stage.name}」现有 ${count} 项，超过打印页容量上限 ${STAGE_ITEM_CAPACITY} 项，请拆分为多个阶段。` });
+    }
+  });
+
+  // 旧表迁移遗留：无法归属的依赖列待整理，清空后才允许冻结。
+  (project.pendingLinks ?? []).forEach((link) => {
+    add({
+      id: `${link.id}-pending`,
+      type: 'pending-links',
+      level: 'error',
+      stageId: project.pendingStageId,
+      itemId: link.itemId,
+      title: '存在无法归属的前置依赖',
+      detail: link.reason
+    });
+  });
+
   for (const [challenge, entries] of challenges) {
     if (challenge && entries.length > 1) {
       add({ id: `duplicate-challenge-${challenge}`, type: 'duplicate', level: 'warning', stageId: entries[0].stageId, itemId: entries[0].id, title: '挑战语重复', detail: `“${entries[0].challenge}”在检查单中出现 ${entries.length} 次。` });
@@ -53,7 +86,7 @@ export function validateProject(project: ChecklistProject): ValidationIssue[] {
   }
 
   const canonical = ['飞行前检查', '发动机启动', '滑行', '起飞', '爬升', '进近', '着陆'];
-  const positions = project.stages.map((stage) => ({ stage, canonical: canonical.indexOf(stage.name) })).filter((item) => item.canonical >= 0);
+  const positions = project.stages.map((stage) => ({ stage, canonical: canonical.indexOf(stage.name) })).filter((entry) => entry.canonical >= 0);
   for (let index = 1; index < positions.length; index += 1) {
     if (positions[index - 1].canonical > positions[index].canonical) {
       add({

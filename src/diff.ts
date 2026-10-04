@@ -2,6 +2,13 @@ import type { ChecklistItem, ChecklistProject, ChecklistRevision, DiffEntry, Ver
 
 const itemLabel = (item: ChecklistItem) => `${item.challenge || '未命名'} → ${item.response || '未填写'}`;
 
+// 确认台账（确认时间、失效原因）属于运行时记录，不计入修订内容差异。
+const diffBasis = (item: ChecklistItem) => {
+  const { updatedAt: _updatedAt, confirmedAt: _confirmedAt, invalidationReason: _invalidationReason, ...basis } = item;
+  void _updatedAt; void _confirmedAt; void _invalidationReason;
+  return JSON.stringify(basis);
+};
+
 export function buildVersionOptions(project: ChecklistProject): VersionOption[] {
   return [
     { id: 'current', label: `当前 r${project.revision} · ${statusLabel(project.status)}` },
@@ -26,7 +33,7 @@ export function diffVersions(project: ChecklistProject, leftId: string, rightId:
       entries.push({ type: 'added', key: id, stage: stageName(after), before: '—', after: itemLabel(after) });
     } else if (before && !after) {
       entries.push({ type: 'removed', key: id, stage: stageName(before), before: itemLabel(before), after: '—' });
-    } else if (before && after && JSON.stringify({ ...before, updatedAt: '' }) !== JSON.stringify({ ...after, updatedAt: '' })) {
+    } else if (before && after && diffBasis(before) !== diffBasis(after)) {
       entries.push({
         type: 'changed',
         key: id,
