@@ -1,12 +1,24 @@
 export type WorkflowStatus = 'draft' | 'review' | 'frozen';
 export type IssueLevel = 'error' | 'warning' | 'info';
-export type IssueType = 'duplicate' | 'missing-response' | 'unreachable-precondition' | 'stage-order' | 'orphan-stage';
+export type IssueType =
+  | 'duplicate'
+  | 'missing-response'
+  | 'unreachable-precondition'
+  | 'dependency-cycle'
+  | 'stage-capacity'
+  | 'stage-order'
+  | 'orphan-stage';
 
 export interface FlightStage {
   id: string;
   name: string;
   order: number;
   description: string;
+}
+
+export interface ConfirmationInvalidation {
+  reason: string;
+  at: string;
 }
 
 export interface ChecklistItem {
@@ -18,7 +30,18 @@ export interface ChecklistItem {
   critical: boolean;
   preconditionIds: string[];
   abnormalProcedure: string;
+  confirmed: boolean;
+  invalidated?: ConfirmationInvalidation;
   updatedAt: string;
+}
+
+/** 旧表导入后无法归属到任何字段的原始列，等待人工整理。 */
+export interface PendingColumn {
+  id: string;
+  itemId: string;
+  header: string;
+  value: string;
+  reason: string;
 }
 
 export interface ChecklistRevision {
@@ -42,6 +65,9 @@ export interface ChecklistProject {
   stages: FlightStage[];
   items: ChecklistItem[];
   revisions: ChecklistRevision[];
+  pendingColumns: PendingColumn[];
+  /** 最近一次成功写入本地存储的时间，保存失败回滚以此为准。 */
+  lastSavedAt?: string;
 }
 
 export interface WorkspaceState {
@@ -72,3 +98,18 @@ export interface DiffEntry {
   before: string;
   after: string;
 }
+
+/** 容量或依赖不满足时，按检查项给出的冲突说明。 */
+export interface MoveConflict {
+  itemId: string;
+  stageId: string;
+  reason: string;
+}
+
+export interface BatchMoveResult {
+  ok: boolean;
+  conflicts: MoveConflict[];
+}
+
+export const STAGE_ITEM_CAPACITY = 24;
+export const PENDING_STAGE_ID = 'stage-pending';

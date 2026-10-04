@@ -1,3 +1,5 @@
+import { findDependencyCycles } from './draft';
+import { STAGE_ITEM_CAPACITY } from './types';
 import type { ChecklistItem, ChecklistProject, ValidationIssue } from './types';
 
 const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en');
@@ -51,6 +53,44 @@ export function validateProject(project: ChecklistProject): ValidationIssue[] {
       add({ id: `duplicate-response-${response}`, type: 'duplicate', level: 'info', stageId: entries[0].stageId, itemId: entries[0].id, title: '回应高度重复', detail: `“${entries[0].response}”出现 ${entries.length} 次，请确认是否为通用回应。` });
     }
   }
+
+  // 依赖环（多节点循环；自引用在上方单独上报）：同一分量只报一条。
+  const cycles = findDependencyCycles(project.items);
+  const reportedComponents = new Set<string>();
+  [...cycles.entries()]
+    .filter(([, members]) => members.length > 1)
+    .sort((a, b) => a[1][0].localeCompare(b[1][0]))
+    .forEach(([, members]) => {
+      const signature = [...members].sort().join('|');
+      if (reportedComponents.has(signature)) return;
+      reportedComponents.add(signature);
+      const lead = itemById.get(members[0]);
+      const label = members.map((id) => itemById.get(id)?.challenge || '未命名检查项').join(' → ');
+      add({
+        id: `dependency-cycle-${signature}`,
+        type: 'dependency-cycle',
+        level: 'error',
+        stageId: lead?.stageId,
+        itemId: lead?.id,
+        title: '前置条件形成依赖环',
+        detail: `${label} 互相依赖，任何一项都无法先被满足。`
+      });
+    });
+
+  // 打印页容量：单个飞行阶段检查项不得超过 24 项。
+  project.stages.forEach((stage) => {
+    const count = project.items.filter((item) => item.stageId === stage.id).length;
+    if (count > STAGE_ITEM_CAPACITY) {
+      add({
+        id: `stage-capacity-${stage.id}`,
+        type: 'stage-capacity',
+        level: 'error',
+        stageId: stage.id,
+        title: '阶段超出打印页容量',
+        detail: `「${stage.name}」现有 ${count} 个检查项，超过单页容量 ${STAGE_ITEM_CAPACITY} 项，请拆分阶段后再发布。`
+      });
+    }
+  });
 
   const canonical = ['飞行前检查', '发动机启动', '滑行', '起飞', '爬升', '进近', '着陆'];
   const positions = project.stages.map((stage) => ({ stage, canonical: canonical.indexOf(stage.name) })).filter((item) => item.canonical >= 0);

@@ -28,6 +28,7 @@ const item = (
   critical,
   preconditionIds,
   abnormalProcedure,
+  confirmed: false,
   updatedAt: '2026-09-25T00:00:00.000Z'
 });
 
@@ -59,6 +60,7 @@ const project: ChecklistProject = {
   reviewNote: '',
   stages: structuredClone(stages),
   items: structuredClone(items),
+  pendingColumns: [],
   revisions: [
     {
       id: 'revision-2',

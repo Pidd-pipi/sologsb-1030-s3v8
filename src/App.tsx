@@ -23,6 +23,7 @@ import {
 } from '@radix-ui/themes';
 import { buildVersionOptions, diffVersions } from './diff';
 import { useChecklistStore } from './store';
+import { PENDING_STAGE_ID, STAGE_ITEM_CAPACITY } from './types';
 import type { ChecklistItem, ChecklistProject, IssueLevel, ValidationIssue, WorkflowStatus } from './types';
 import { validateProject } from './validation';
 
@@ -159,14 +160,16 @@ function App() {
     const stageOrder = project.stages.slice().sort((a, b) => a.order - b.order);
     const body = stageOrder.map((stage) => {
       const rows = project.items.filter((item) => item.stageId === stage.id).sort((a, b) => a.order - b.order).map((item) => `
-        <tr><td>${item.critical ? '<strong>◆</strong> ' : ''}${escapeHtml(item.challenge)}</td><td>${escapeHtml(item.response || '未填写')}</td><td>${escapeHtml(item.abnormalProcedure || '—')}</td></tr>
+        <tr${item.invalidated ? ' class="invalidated"' : ''}><td>${item.confirmed ? '✓ 已确认' : item.invalidated ? '✗ 失效' : '☐'}</td><td>${item.critical ? '<strong>◆</strong> ' : ''}${escapeHtml(item.challenge)}</td><td>${escapeHtml(item.response || '未填写')}</td><td>${escapeHtml(item.abnormalProcedure || (item.invalidated ? `确认失效：${item.invalidated.reason}` : '—'))}</td></tr>
       `).join('');
-      return `<section><h2>${escapeHtml(stage.name)}</h2><p>${escapeHtml(stage.description)}</p><table><thead><tr><th>挑战语</th><th>预期回应</th><th>异常处置</th></tr></thead><tbody>${rows || '<tr><td colspan="3">本阶段暂无项目</td></tr>'}</tbody></table></section>`;
+      const capacityNote = project.items.filter((item) => item.stageId === stage.id).length > STAGE_ITEM_CAPACITY ? `<p class="over"><strong>警告：本阶段 ${project.items.filter((item) => item.stageId === stage.id).length} 项，超出打印页容量 ${STAGE_ITEM_CAPACITY} 项。</strong></p>` : '';
+      return `<section><h2>${escapeHtml(stage.name)}${stage.id === PENDING_STAGE_ID ? '（待整理）' : ''}</h2><p>${escapeHtml(stage.description)}</p>${capacityNote}<table><thead><tr><th>确认</th><th>挑战语</th><th>预期回应</th><th>异常处置</th></tr></thead><tbody>${rows || '<tr><td colspan="4">本阶段暂无项目</td></tr>'}</tbody></table></section>`;
     }).join('');
     const documentHtml = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${escapeHtml(project.name)}</title><style>
       body{font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111;margin:36px}
       h1{margin:0 0 4px} .meta{color:#666;margin-bottom:28px} h2{border-bottom:2px solid #222;padding-bottom:5px;margin-top:26px}
       table{width:100%;border-collapse:collapse} th,td{border:1px solid #bbb;padding:7px;text-align:left;vertical-align:top} th{background:#eee}
+      tr.invalidated td{background:#fdecec} .over{color:#b00}
       @media print{body{margin:15mm}section{break-inside:avoid}}
     </style></head><body><h1>${escapeHtml(project.name)}</h1><div class="meta">${escapeHtml(project.aircraft)} · r${project.revision} · ${escapeHtml(statusMeta[project.status].label)} · 导出 ${new Date().toLocaleString('zh-CN')}</div>${body}</body></html>`;
     const url = URL.createObjectURL(new Blob([documentHtml], { type: 'text/html;charset=utf-8' }));
@@ -180,7 +183,7 @@ function App() {
   function togglePrecondition(item: ChecklistItem, preconditionId: string) {
     const ids = new Set(item.preconditionIds);
     ids.has(preconditionId) ? ids.delete(preconditionId) : ids.add(preconditionId);
-    store.updateItem(item.id, { preconditionIds: [...ids] });
+    store.setPreconditions(item.id, [...ids]);
   }
 
   function duplicateItem(item: ChecklistItem) {
@@ -244,6 +247,25 @@ function App() {
           </Flex>
         </div>
 
+        {store.saveError && (
+          <Callout.Root color="red" className="inline-banner" role="alert">
+            <Callout.Text>{store.saveError}<Button size="1" variant="soft" ml="3" onClick={store.dismissSaveError}>知道了</Button></Callout.Text>
+          </Callout.Root>
+        )}
+        {store.moveConflicts.length > 0 && (
+          <Callout.Root color="red" className="inline-banner" role="alert">
+            <Callout.Text>
+              <strong>整批调整已拒绝，已保留原顺序：</strong>
+              <ul className="conflict-list">
+                {store.moveConflicts.map((conflict, index) => (
+                  <li key={`${conflict.itemId}-${index}`}>{conflict.reason}</li>
+                ))}
+              </ul>
+              <Button size="1" variant="soft" mt="1" onClick={store.dismissMoveConflicts}>关闭提示</Button>
+            </Callout.Text>
+          </Callout.Root>
+        )}
+
         <main className="workspace">
           <Tabs.Root value={activeTab} onValueChange={setActiveTab}>
             <Tabs.List className="main-tabs">
@@ -265,9 +287,9 @@ function App() {
                         const count = project.items.filter((item) => item.stageId === stage.id).length;
                         const issueCount = issues.filter((issue) => issue.stageId === stage.id).length;
                         return (
-                          <button key={stage.id} className={`stage-nav-item ${quickStageId === stage.id ? 'active' : ''}`} onClick={() => setQuickStageId(stage.id)}>
+                          <button key={stage.id} className={`stage-nav-item ${quickStageId === stage.id ? 'active' : ''} ${stage.id === PENDING_STAGE_ID ? 'pending' : ''}`} onClick={() => setQuickStageId(stage.id)}>
                             <span className="stage-index">{String(index + 1).padStart(2, '0')}</span>
-                            <span><strong>{stage.name}</strong><small>{count} 项{issueCount ? ` · ${issueCount} 个问题` : ''}</small></span>
+                            <span><strong>{stage.name}{stage.id === PENDING_STAGE_ID && '（待整理）'}</strong><small className={count > STAGE_ITEM_CAPACITY ? 'over-capacity' : ''}>{count}/{STAGE_ITEM_CAPACITY} 项{issueCount ? ` · ${issueCount} 个问题` : ''}</small></span>
                           </button>
                         );
                       })}
@@ -307,6 +329,7 @@ function App() {
                             <span className="sequence-chip">{stageIndex + 1}</span>
                             <input aria-label={`${stage.name} 阶段名称`} value={stage.name} disabled={project.status !== 'draft'} onChange={(event) => store.updateStage(stage.id, { name: event.target.value })} />
                             <TextField.Root value={stage.description} disabled={project.status !== 'draft'} onChange={(event) => store.updateStage(stage.id, { description: event.target.value })} />
+                            <Badge color={items.length > STAGE_ITEM_CAPACITY ? 'red' : stage.id === PENDING_STAGE_ID ? 'amber' : 'gray'} size="1">{items.length}/{STAGE_ITEM_CAPACITY}</Badge>
                           </div>
                           <Flex gap="1">
                             <Button size="1" variant="soft" disabled={project.status !== 'draft' || stage.order === 0} onClick={() => store.moveStage(stage.id, -1)}>上移</Button>
@@ -317,10 +340,11 @@ function App() {
                         <div className="item-table">
                           {items.map((item) => {
                             const itemIssues = issues.filter((issue) => issue.itemId === item.id);
+                            const itemConflicts = store.moveConflicts.filter((conflict) => conflict.itemId === item.id);
                             return (
                               <article
                                 key={item.id}
-                                className={`checklist-row ${selectedItemId === item.id ? 'selected' : ''}`}
+                                className={`checklist-row ${selectedItemId === item.id ? 'selected' : ''} ${item.invalidated ? 'invalidated' : ''}`}
                                 draggable={project.status === 'draft'}
                                 onDragStart={(event) => event.dataTransfer.setData('text/plain', item.id)}
                                 onDragOver={(event) => { if (project.status === 'draft') event.preventDefault(); }}
@@ -332,11 +356,17 @@ function App() {
                                   <Flex gap="2" align="center" wrap="wrap">
                                     <strong>{item.challenge || '未命名检查项'}</strong>
                                     {item.critical && <Badge color="red" size="1">关键</Badge>}
+                                    {item.confirmed && <Badge color="green" size="1">已确认</Badge>}
+                                    {item.invalidated && <Badge color="red" size="1">确认已失效</Badge>}
                                     {item.preconditionIds.length > 0 && <Badge color="blue" size="1">{item.preconditionIds.length} 前置</Badge>}
                                     {itemIssues.length > 0 && <Badge color={itemIssues.some((issue) => issue.level === 'error') ? 'red' : 'amber'} size="1">{itemIssues.length} 问题</Badge>}
                                   </Flex>
                                   <span className={`response-preview ${!item.response ? 'missing' : ''}`}>{item.response || '缺少预期回应'}</span>
                                   {item.abnormalProcedure && <small>异常：{item.abnormalProcedure}</small>}
+                                  {item.invalidated && <small className="invalidation-reason" title={item.invalidated.at}>确认失效：{item.invalidated.reason}</small>}
+                                  {itemConflicts.map((conflict, index) => (
+                                    <small key={index} className="conflict-reason">⛔ {conflict.reason}</small>
+                                  ))}
                                 </div>
                                 <div className="row-actions">
                                   <Button size="1" variant="ghost" disabled={project.status !== 'draft'} onClick={(event) => { event.stopPropagation(); store.nudgeItem(item.id, -1); }}>↑</Button>
@@ -352,6 +382,40 @@ function App() {
                       </Card>
                     ))}
                   </div>
+
+                  {project.pendingColumns.length > 0 && (
+                    <Card className="pending-card">
+                      <Flex justify="between" align="center" mb="2">
+                        <Heading size="4">待整理的旧表列</Heading>
+                        <Badge color="amber">{project.pendingColumns.length}</Badge>
+                      </Flex>
+                      <Text size="1" color="gray" as="p" mb="3">下列内容来自旧表，无法自动归属到检查项字段，请指定归属或丢弃。</Text>
+                      <div className="pending-list">
+                        {project.pendingColumns.map((pending) => {
+                          const owner = project.items.find((item) => item.id === pending.itemId);
+                          return (
+                            <div key={pending.id} className="pending-row">
+                              <div>
+                                <strong>{owner?.challenge || '已删除的检查项'}</strong>
+                                <small>{pending.header}：{pending.value || '（空）'} · {pending.reason}</small>
+                              </div>
+                              <Flex gap="1" align="center">
+                                <Select.Root disabled={project.status !== 'draft' || !owner} onValueChange={(value) => store.resolvePendingColumn(pending.id, { assignTo: value as keyof ChecklistItem })}>
+                                  <Select.Trigger variant="soft" placeholder="归入字段" style={{ minWidth: 120 }} />
+                                  <Select.Content position="popper">
+                                    <Select.Item value="challenge">挑战语</Select.Item>
+                                    <Select.Item value="response">预期回应</Select.Item>
+                                    <Select.Item value="abnormalProcedure">异常处理</Select.Item>
+                                  </Select.Content>
+                                </Select.Root>
+                                <Button size="1" color="red" variant="soft" disabled={project.status !== 'draft'} onClick={() => store.resolvePendingColumn(pending.id, { discard: true })}>丢弃</Button>
+                              </Flex>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </Card>
+                  )}
                 </section>
 
                 <aside className="inspector">
@@ -364,6 +428,18 @@ function App() {
                             <label><span>挑战语</span><TextField.Root value={selectedItem.challenge} disabled={project.status !== 'draft'} onChange={(event) => store.updateItem(selectedItem.id, { challenge: event.target.value })} /></label>
                             <label><span>预期回应</span><TextField.Root value={selectedItem.response} disabled={project.status !== 'draft'} onChange={(event) => store.updateItem(selectedItem.id, { response: event.target.value })} /></label>
                             <Flex justify="between" align="center"><Text size="2" weight="bold">关键标记</Text><Switch checked={selectedItem.critical} disabled={project.status !== 'draft'} onCheckedChange={(checked) => store.updateItem(selectedItem.id, { critical: checked })} /></Flex>
+                            <Flex justify="between" align="center" gap="3">
+                              <Text size="2" weight="bold">机组确认</Text>
+                              <label className="confirm-toggle">
+                                <input type="checkbox" checked={selectedItem.confirmed} disabled={project.status !== 'draft'} onChange={(event) => event.target.checked ? store.confirmItem(selectedItem.id) : store.updateItem(selectedItem.id, { confirmed: false, invalidated: undefined })} />
+                                <span>{selectedItem.confirmed ? '已确认' : '未确认'}</span>
+                              </label>
+                            </Flex>
+                            {selectedItem.invalidated && (
+                              <Callout.Root color="red" size="1">
+                                <Callout.Text size="1">该项确认已失效：{selectedItem.invalidated.reason}</Callout.Text>
+                              </Callout.Root>
+                            )}
                             <label><span>异常处理</span><TextArea value={selectedItem.abnormalProcedure} disabled={project.status !== 'draft'} onChange={(event) => store.updateItem(selectedItem.id, { abnormalProcedure: event.target.value })} placeholder="异常条件、立即动作和后续步骤" /></label>
                             <div>
                               <Text size="2" weight="bold" mb="2" as="p">前置条件</Text>
@@ -459,7 +535,9 @@ function App() {
           <Dialog.Title>冻结 r{project.revision}</Dialog.Title>
           <Dialog.Description size="2" color="gray">冻结后不可直接编辑，只能通过创建新修订继续修改。</Dialog.Description>
           <TextArea mt="4" value={freezeNote} onChange={(event) => setFreezeNote(event.target.value)} placeholder="复核意见或版本说明" />
-          <Flex gap="3" justify="end" mt="4"><Dialog.Close><Button variant="soft">取消</Button></Dialog.Close><Button color="green" onClick={() => { store.freezeRevision(freezeNote); setFreezeOpen(false); setFreezeNote(''); }}>确认冻结</Button></Flex>
+          <Flex gap="3" justify="end" mt="4"><Dialog.Close><Button variant="soft">取消</Button></Dialog.Close><Button color="green" onClick={() => {
+            if (store.freezeRevision(freezeNote)) { setFreezeOpen(false); setFreezeNote(''); }
+          }}>确认冻结</Button></Flex>
         </Dialog.Content>
       </Dialog.Root>
 
@@ -491,12 +569,17 @@ function PrintableChecklist({ project, compact = false }: { project: ChecklistPr
         <section key={stage.id}>
           <div className="print-stage-title"><span>{String(index + 1).padStart(2, '0')}</span><div><Heading size="5">{stage.name}</Heading><Text color="gray" size="1">{stage.description}</Text></div></div>
           <table>
-            <thead><tr><th style={{ width: '34%' }}>挑战语</th><th style={{ width: '25%' }}>预期回应</th><th>异常处理</th></tr></thead>
+            <thead><tr><th style={{ width: '8%' }}>确认</th><th style={{ width: '30%' }}>挑战语</th><th style={{ width: '24%' }}>预期回应</th><th>异常处理</th></tr></thead>
             <tbody>
               {project.items.filter((item) => item.stageId === stage.id).sort((a, b) => a.order - b.order).map((item) => (
-                <tr key={item.id}><td>{item.critical && <span className="critical-mark">◆</span>} {item.challenge}</td><td><strong>{item.response || '未填写'}</strong></td><td>{item.abnormalProcedure || '—'}</td></tr>
+                <tr key={item.id} className={item.invalidated ? 'print-invalidated' : ''}>
+                  <td>{item.confirmed ? '✓ 已确认' : item.invalidated ? '✗ 失效' : '☐'}</td>
+                  <td>{item.critical && <span className="critical-mark">◆</span>} {item.challenge}</td>
+                  <td><strong>{item.response || '未填写'}</strong></td>
+                  <td>{item.abnormalProcedure || (item.invalidated ? `确认失效：${item.invalidated.reason}` : '—')}</td>
+                </tr>
               ))}
-              {!project.items.some((item) => item.stageId === stage.id) && <tr><td colSpan={3}>本阶段暂无检查项</td></tr>}
+              {!project.items.some((item) => item.stageId === stage.id) && <tr><td colSpan={4}>本阶段暂无检查项</td></tr>}
             </tbody>
           </table>
         </section>
